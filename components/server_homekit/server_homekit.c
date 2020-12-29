@@ -11,6 +11,7 @@
 #include <homekit/homekit.h>
 #include "wifi.h"
 
+#include <virtual_sensor.h>
 #include <wiring.h>
 
 #include "server_homekit.h"
@@ -106,6 +107,33 @@ void led_on_set(homekit_value_t value) {
     led_write(s_led_on);
 }
 
+_Noreturn void sensor_task(VirtualSensorData* sensor_data) {
+    while (1) {
+
+        temperature.value.float_value = *sensor_data->temperature;
+        relative_humidity.value.float_value = *sensor_data->humidity;
+
+        uint8_t iaq = roundf((*sensor_data->static_iaq)/100);
+
+        air_quality.value.uint8_value = iaq;
+        carbon_dioxide_equivalent.value.float_value = *sensor_data->co2_equivalent;
+        voc_equivalent.value.float_value = *sensor_data->breath_voc_equivalent;
+
+        homekit_characteristic_notify(&temperature, HOMEKIT_FLOAT(*sensor_data->temperature));
+        homekit_characteristic_notify(&relative_humidity, HOMEKIT_FLOAT(*sensor_data->humidity));
+        homekit_characteristic_notify(&air_quality, HOMEKIT_UINT8(iaq));
+        homekit_characteristic_notify(&carbon_dioxide_equivalent, HOMEKIT_FLOAT(*sensor_data->co2_equivalent));
+        homekit_characteristic_notify(&voc_equivalent, HOMEKIT_FLOAT(*sensor_data->breath_voc_equivalent));
+
+        vTaskDelay(3000 / portTICK_PERIOD_MS);
+    }
+}
+
+void sensor_init() {
+    VirtualSensorData* sensor_data = get_v_sensor();
+    xTaskCreate((TaskFunction_t)sensor_task, "HomeKit Sensor Task", 256, &sensor_data, 2, NULL);
+}
+
 homekit_accessory_t* accessories[] = {
     HOMEKIT_ACCESSORY(.id=1, .category=homekit_accessory_category_thermostat, .services=(homekit_service_t*[]) {
         HOMEKIT_SERVICE(ACCESSORY_INFORMATION, .characteristics=(homekit_characteristic_t*[]) {
@@ -113,7 +141,7 @@ homekit_accessory_t* accessories[] = {
             HOMEKIT_CHARACTERISTIC(MANUFACTURER, "MathisK"),
             HOMEKIT_CHARACTERISTIC(SERIAL_NUMBER, "037A2BA5BF19D"),
             HOMEKIT_CHARACTERISTIC(MODEL, "MyTemperatureSensor"),
-            HOMEKIT_CHARACTERISTIC(FIRMWARE_REVISION, "0.1"),
+            HOMEKIT_CHARACTERISTIC(FIRMWARE_REVISION, "0.2"),
             HOMEKIT_CHARACTERISTIC(IDENTIFY, clock_identify),
             NULL}),
                       HOMEKIT_SERVICE(TEMPERATURE_SENSOR, .characteristics=(homekit_characteristic_t*[]) {
