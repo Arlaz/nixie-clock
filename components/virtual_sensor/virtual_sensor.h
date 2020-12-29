@@ -7,8 +7,8 @@
 
 #include <stdbool.h>
 #include <string.h>
-#include "interface_bme680.h"
-#include "interface_ds18b20.h"
+#include <interface_bme680.h>
+#include <interface_ds18b20.h>
 
 typedef struct SENSORS_DATA {
     bool initialized;
@@ -17,8 +17,14 @@ typedef struct SENSORS_DATA {
 } SensorsData;
 
 typedef struct VIRTUAL_SENSOR_DATA {
-    float* temp;
-} VSensorData;
+    float* temperature;
+    float* humidity;
+    float* pressure;
+    float* static_iaq;
+    float* co2_equivalent;
+    float* breath_voc_equivalent;
+} VirtualSensorData;
 
 void initialize_virtual_sensor(void);
-SensorsData* get_sensors_data(void);
+SensorsData* get_sensors(void);
+VirtualSensorData* get_v_sensor(void);
