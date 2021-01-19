@@ -5,4 +5,5 @@ idf_component_register(
             .
         REQUIRES
             interface_ds18b20
+            interface_bme680
 )

@@ -1,6 +1,8 @@
 #include <nvs_flash.h>
 #include <wiring.h>
+#include <virtual_sensor.h>
 #include <server_homekit.h>
+
 
 void app_main(void) {
     // Initialize NVS
@@ -14,5 +16,6 @@ void app_main(void) {
     ESP_ERROR_CHECK(err_nvs_flash);
 
     pin_config();
+    initialize_virtual_sensor();
     homekit_server_start();
 }
