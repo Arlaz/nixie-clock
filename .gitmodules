@@ -7,3 +7,9 @@
 [submodule "lib/http-parser"]
 	path = lib/http-parser
 	url = git@github.com:Arlaz/esp-http-parser.git
+[submodule "lib/sensors/one_wire"]
+	path = lib/sensors/one_wire
+	url = git@github.com:Arlaz/esp32-owb.git
+[submodule "lib/sensors/ds18b20"]
+	path = lib/sensors/ds18b20
+	url = git@github.com:Arlaz/esp32-ds18b20.git

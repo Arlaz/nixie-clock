@@ -1,0 +1,10 @@
+idf_component_register(
+        SRCS
+            "interface_ds18b20.c"
+        INCLUDE_DIRS
+            .
+        PRIV_REQUIRES
+            wiring
+            one_wire
+            ds18b20
+)
