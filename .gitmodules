@@ -19,3 +19,6 @@
 [submodule "lib/sensors/sensirion-sht"]
 	path = lib/sensors/sensirion-sht
 	url = git@github.com:Arlaz/embedded-sht.git
+[submodule "lib/drivers"]
+	path = lib/drivers
+	url = git@github.com:Arlaz/esp-idf-lib.git
