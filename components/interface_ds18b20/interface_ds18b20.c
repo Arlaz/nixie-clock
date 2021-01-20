@@ -39,9 +39,9 @@ float* get_ds18b20_temp(void) {
     return &ds18b20_current_temperature;
 }
 
-int initialize_ds18b20_sensor(void) {
-    // Override global log level
-    esp_log_level_set("*", ESP_LOG_INFO);
+esp_err_t initialize_ds18b20_sensor(void) {
+    // Override global log level by uncommenting following line
+    // esp_log_level_set("*", ESP_LOG_INFO);
 
     // To debug, use 'make menuconfig' to set default Log level to DEBUG, then uncomment:
     // esp_log_level_set("owb", ESP_LOG_DEBUG);
@@ -64,7 +64,7 @@ int initialize_ds18b20_sensor(void) {
         ESP_LOGI(TAG, "Device found");
     } else {
         ESP_LOGI(TAG, "Device not found");
-        return 1;
+        return ESP_ERR_NOT_FOUND;
     }
     ESP_LOGI(TAG, "Device ROM Code: %s", rom_code_s);
 
@@ -78,5 +78,5 @@ int initialize_ds18b20_sensor(void) {
 
     xTaskCreatePinnedToCore(ds18b20_update_temperature_task, "Update ds18b20 temperature", 4096, NULL, 2, NULL, 0);
 
-    return 0;
+    return ESP_OK;
 }

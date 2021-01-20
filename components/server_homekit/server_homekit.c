@@ -129,7 +129,7 @@ _Noreturn void sensor_task(VirtualSensorData* sensor_data) {
     }
 }
 
-void sensor_init() {
+void sensor_init(void) {
     VirtualSensorData* sensor_data = get_v_sensor();
     xTaskCreate((TaskFunction_t)sensor_task, "HomeKit Sensor Task", 256, &sensor_data, 2, NULL);
 }
@@ -138,7 +138,7 @@ homekit_accessory_t* accessories[] = {
     HOMEKIT_ACCESSORY(.id=1, .category=homekit_accessory_category_thermostat, .services=(homekit_service_t*[]) {
         HOMEKIT_SERVICE(ACCESSORY_INFORMATION, .characteristics=(homekit_characteristic_t*[]) {
             HOMEKIT_CHARACTERISTIC(NAME, "LED and TEMP Sensor"),
-            HOMEKIT_CHARACTERISTIC(MANUFACTURER, "MathisK"),
+            HOMEKIT_CHARACTERISTIC(MANUFACTURER, "Arlaz"),
             HOMEKIT_CHARACTERISTIC(SERIAL_NUMBER, "037A2BA5BF19D"),
             HOMEKIT_CHARACTERISTIC(MODEL, "MyTemperatureSensor"),
             HOMEKIT_CHARACTERISTIC(FIRMWARE_REVISION, "0.2"),
