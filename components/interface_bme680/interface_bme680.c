@@ -174,7 +174,7 @@ uint32_t state_load(uint8_t *state_buffer, uint32_t n_buffer) {
         return n_buffer;
     }
     ESP_LOGW(TAG, "loading sensor binary blob failed with code %d", err_nvs);
-    return 0;
+    return ESP_OK;
 }
 
 /*!
@@ -256,7 +256,7 @@ void bme680_loop(ParametersForBME680* parameters) {
  *
  * @return          result of the processing
  */
-int initialize_bme680_sensor(void)  {
+esp_err_t initialize_bme680_sensor(void)  {
     return_values_init ret;
     ESP_ERROR_CHECK(i2c_master_init());
 
@@ -267,12 +267,12 @@ int initialize_bme680_sensor(void)  {
     if (ret.bme680_status) {
         /* Could not initialize BME680 */
         ESP_LOGE(TAG, "initializing BME680 failed %d", ret.bme680_status);
-        return (int)ret.bme680_status;
+        return (esp_err_t)ret.bme680_status;
     }
     else if (ret.bsec_status) {
         /* Could not initialize BSEC library */
         ESP_LOGE(TAG, "initializing BSEC failed %d", ret.bsec_status);
-        return (int)ret.bsec_status;
+        return (esp_err_t)ret.bsec_status;
     }
 
     ESP_LOGI(TAG, "Entering into the loop");
@@ -284,5 +284,5 @@ int initialize_bme680_sensor(void)  {
     /* State is saved every STATE_SAVING_SAMPLES_INTERVAL samples, by default every 10.000 * 3 secs = 500 minutes  */
     xTaskCreatePinnedToCore((TaskFunction_t)bme680_loop, "Update BME680 characteristics", 256, &arguments, 2, NULL, 0);
 
-    return 0;
+    return ESP_OK;
 }
