@@ -1,0 +1,9 @@
+menu "BSEC Keystore"
+
+    config BSEC_DEF_NVS_RUNTIME_PARTITION
+        string "Runtime BSEC partition name"
+        default "nvs"
+        help
+            Set the runtime NVS partition name for BSEC use.
+
+endmenu

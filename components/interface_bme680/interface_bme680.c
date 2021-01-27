@@ -9,6 +9,7 @@
 
 #include <bsec_integration.h>
 #include <bsec_serialized_configurations_iaq.h>
+#include <nvs_flash.h>
 
 #include "interface_bme680.h"
 
@@ -156,10 +157,14 @@ void output_ready(int64_t timestamp, float iaq, uint8_t iaq_accuracy, float temp
     bme680_current_data.co2_equivalent = co2_equivalent;
     bme680_current_data.breath_voc_equivalent = breath_voc_equivalent;
 
-    ESP_LOGI(TAG, "iaq : %f | static iaq : %f | iaq accuracy : %hhu "
-                  "temperature : %f | humidity : %f | pressure %f "
-                  "co2_equivalent %f | breath voc %f",
-             iaq, static_iaq, iaq_accuracy, temperature, humidity, pressure, co2_equivalent, breath_voc_equivalent);
+    ESP_LOGI(TAG, "iaq : %f", iaq);
+    ESP_LOGI(TAG, "static iaq : %f", static_iaq);
+    ESP_LOGI(TAG, "iaq accuracy : %hhu", iaq_accuracy);
+    ESP_LOGI(TAG, "temperature : %f", temperature);
+    ESP_LOGI(TAG, "humidity : %f", humidity);
+    ESP_LOGI(TAG, "pressure %f", pressure);
+    ESP_LOGI(TAG, "co2_equivalent %f", co2_equivalent);
+    ESP_LOGI(TAG, "breath voc %f", breath_voc_equivalent);
 }
 
 /*!
@@ -186,8 +191,14 @@ uint32_t state_load(uint8_t *state_buffer, uint32_t n_buffer) {
     // otherwise return length of loaded state string.
     // ...
     nvs_handle_t my_handle;
-    esp_err_t err_nvs = nvs_open("state", NVS_READONLY, &my_handle);
-    ESP_ERROR_CHECK(err_nvs);
+    esp_err_t err_nvs = nvs_open_from_partition(CONFIG_BSEC_DEF_NVS_RUNTIME_PARTITION, "bsec_state", NVS_READONLY, &my_handle);
+    if (err_nvs == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "opening partition failed with code %d (no state available ?)", err_nvs);
+        return ESP_OK;
+    } else if (err_nvs != ESP_OK) {
+        ESP_LOGW(TAG, "opening partition failed with code %d", err_nvs);
+        return 0;
+    }
 
     err_nvs = nvs_get_blob(my_handle, sensor_binary, state_buffer, &n_buffer);
     // We close this anyway even if the operation didn't succeed.
@@ -212,7 +223,7 @@ void state_save(const uint8_t *state_buffer, uint32_t length) {
     // Save the string some form of non-volatile memory, if possible.
     // ...
     nvs_handle_t my_handle;
-    esp_err_t err_nvs = nvs_open("state", NVS_READWRITE, &my_handle);
+    esp_err_t err_nvs = nvs_open_from_partition(CONFIG_BSEC_DEF_NVS_RUNTIME_PARTITION, "bsec_state", NVS_READWRITE, &my_handle);
     ESP_ERROR_CHECK(err_nvs);
 
     err_nvs = nvs_set_blob(my_handle, sensor_binary, state_buffer, length);
@@ -283,26 +294,38 @@ void bme680_loop(ParametersForBME680* parameters) {
  */
 esp_err_t initialize_bme680_sensor(i2c_port_t port, i2c_config_t* cfg)  {
     ESP_LOGI(TAG, "Initialization started");
-    return_values_init ret;
 
     i2c_bme680.port = port;
     // addr have to match the address defined in bsec_iot_init func
     // redefinition is required for i2cdev component
     i2c_bme680.addr = BME680_I2C_ADDR_PRIMARY;
     i2c_bme680.cfg = *cfg;
+    ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_dev_create_mutex(&i2c_bme680));
+
+    // Init BSEC partition
+    esp_err_t err;
+    err = nvs_flash_init_partition(CONFIG_BSEC_DEF_NVS_RUNTIME_PARTITION);
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES) {
+        ESP_ERROR_CHECK(nvs_flash_erase_partition(CONFIG_BSEC_DEF_NVS_RUNTIME_PARTITION));
+        err = nvs_flash_init_partition(CONFIG_BSEC_DEF_NVS_RUNTIME_PARTITION);
+    }
+    ESP_ERROR_CHECK_WITHOUT_ABORT(err);
 
     /* Call to the function which initializes the BSEC library
      * Switch on low-power mode and provide no temperature offset */
-    ret = bsec_iot_init(BSEC_SAMPLE_RATE_CONTINUOUS, 0.0f, bus_write, bus_read, bme680_sleep, state_load, config_load);
-    if (ret.bme680_status) {
+    return_values_init init_result = bsec_iot_init(BSEC_SAMPLE_RATE_CONTINUOUS, 0.0f, bus_write, bus_read, bme680_sleep, state_load, config_load);
+
+    if (init_result.bme680_status != BME680_OK) {
         /* Could not initialize BME680 */
-        ESP_LOGE(TAG, "initializing BME680 failed %d", ret.bme680_status);
-        return (esp_err_t)ret.bme680_status;
+        ESP_LOGE(TAG, "initializing BME680 failed %d", init_result.bme680_status);
+        ESP_ERROR_CHECK(i2c_dev_delete_mutex(&i2c_bme680));
+        return ESP_ERR_NOT_FOUND;
     }
-    else if (ret.bsec_status) {
+
+    if (init_result.bsec_status != BSEC_OK) {
         /* Could not initialize BSEC library */
-        ESP_LOGE(TAG, "initializing BSEC failed %d", ret.bsec_status);
-        return (esp_err_t)ret.bsec_status;
+        ESP_LOGE(TAG, "initializing BSEC failed %d", init_result.bsec_status);
+        return ESP_ERR_INVALID_STATE;
     }
 
     ESP_LOGI(TAG, "Entering into the loop");
@@ -312,7 +335,7 @@ esp_err_t initialize_bme680_sensor(i2c_port_t port, i2c_config_t* cfg)  {
 
     /* Call to endless loop function which reads and processes data based on sensor settings */
     /* State is saved every STATE_SAVING_SAMPLES_INTERVAL samples, by default every 10.000 * 3 secs = 500 minutes  */
-    xTaskCreatePinnedToCore((TaskFunction_t)bme680_loop, "Update BME680 characteristics", 256, &arguments, 2, NULL, 0);
+    xTaskCreatePinnedToCore((TaskFunction_t)bme680_loop, "Update BME680 characteristics", configMINIMAL_STACK_SIZE * 8, &arguments, 2, NULL, PRO_CPU_NUM);
 
     return ESP_OK;
 }
