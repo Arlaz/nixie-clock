@@ -1,12 +1,3 @@
-[submodule "lib/homekit"]
-	path = lib/homekit
-	url = git@github.com:Arlaz/esp-homekit.git
-[submodule "lib/wolfssl"]
-	path = lib/wolfssl
-	url = git@github.com:Arlaz/esp-wolfssl.git
-[submodule "lib/http-parser"]
-	path = lib/http-parser
-	url = git@github.com:Arlaz/esp-http-parser.git
 [submodule "lib/sensors/one_wire"]
 	path = lib/sensors/one_wire
 	url = git@github.com:Arlaz/esp32-owb.git
@@ -19,3 +10,6 @@
 [submodule "lib/drivers"]
 	path = lib/drivers
 	url = git@github.com:Arlaz/esp-idf-lib.git
+[submodule "lib/homekit"]
+	path = lib/homekit
+	url = git@github.com:Arlaz/esp-homekit-sdk.git

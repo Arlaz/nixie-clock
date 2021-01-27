@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include <esp_event.h>
 #include <esp_log.h>
 #include <esp_wifi.h>
@@ -7,166 +9,350 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#include <homekit/characteristics.h>
-#include <homekit/homekit.h>
-#include "wifi.h"
+#include <hap.h>
+#include <hap_apple_servs.h>
+#include <hap_apple_chars.h>
+#include <hap_fw_upgrade.h>
+#include <app_hap_setup_payload.h>
 
 #include <virtual_sensor.h>
-#include <wiring.h>
+#include <leds_light.h>
 
 #include "server_homekit.h"
 
 static const char* TAG = "HomeKit_Server";
 
-homekit_characteristic_t temperature = HOMEKIT_CHARACTERISTIC_(CURRENT_TEMPERATURE, 0);
-homekit_characteristic_t relative_humidity = HOMEKIT_CHARACTERISTIC_(CURRENT_RELATIVE_HUMIDITY, 0);
-homekit_characteristic_t air_quality = HOMEKIT_CHARACTERISTIC_(AIR_QUALITY, 0);
-homekit_characteristic_t carbon_dioxide_equivalent = HOMEKIT_CHARACTERISTIC_(CARBON_DIOXIDE_LEVEL, 0);
-homekit_characteristic_t voc_equivalent = HOMEKIT_CHARACTERISTIC_(VOC_DENSITY, 0);
+static VirtualSensorData* environmental_data;
 
-static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
-    if (event_base == WIFI_EVENT && (event_id == WIFI_EVENT_STA_START || event_id == WIFI_EVENT_STA_DISCONNECTED)) {
-        ESP_LOGI(TAG,"STA start");
-        esp_wifi_connect();
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ESP_LOGI(TAG,"WiFI ready");
-        on_wifi_ready();
+/* Callback for handling writes on the Leds Service */
+static int leds_write(hap_write_data_t* write_data, int count, void *serv_priv, void *write_priv) {
+    int i, ret = HAP_SUCCESS;
+    hap_write_data_t *write;
+    for (i = 0; i < count; i++) {
+        write = &write_data[i];
+        /* Setting a default error value */
+        *(write->status) = HAP_STATUS_VAL_INVALID;
+        if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_ON)) {
+
+            ESP_LOGI(TAG, "Received Write for Leds %s", write->val.b ? "On" : "Off");
+            if (leds_set_on(write->val.b) == 0) {
+                *(write->status) = HAP_STATUS_SUCCESS;
+            }
+        } else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_BRIGHTNESS)) {
+            ESP_LOGI(TAG, "Received Write for Leds Brightness %d", write->val.i);
+            if (leds_set_brightness(write->val.i) == 0) {
+                *(write->status) = HAP_STATUS_SUCCESS;
+            }
+        } else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_HUE)) {
+            ESP_LOGI(TAG, "Received Write for Leds Hue %f", write->val.f);
+            if (leds_set_hue(write->val.f) == 0) {
+                *(write->status) = HAP_STATUS_SUCCESS;
+            }
+        } else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_SATURATION)) {
+            ESP_LOGI(TAG, "Received Write for Leds Saturation %f", write->val.f);
+            if (leds_set_saturation(write->val.f) == 0) {
+                *(write->status) = HAP_STATUS_SUCCESS;
+            }
+        } else {
+            *(write->status) = HAP_STATUS_RES_ABSENT;
+        }
+        /* If the characteristic write was successful, update it in hap core */
+        if (*(write->status) == HAP_STATUS_SUCCESS) {
+            hap_char_update_val(write->hc, &(write->val));
+        } else {
+            /* Else, set the return value appropriately to report error */
+            ret = HAP_FAIL;
+        }
     }
+    return ret;
 }
 
-static void wifi_init(void) {
-    ESP_ERROR_CHECK(esp_netif_init());
+static int temperature_sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv) {
+    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_TEMPERATURE)) {
+        if (environmental_data->temperature.data_available) {
+            hap_val_t new_val;
+            new_val.f = *environmental_data->temperature.value;
+            hap_char_update_val(hc, &new_val);
+            *status_code = HAP_STATUS_SUCCESS;
+            return HAP_SUCCESS;
+        } else {
+            ESP_LOGW(TAG, "No temperature data available");
+            *status_code = HAP_STATUS_RES_ABSENT;
+        }
+    } else {
+        ESP_LOGW(TAG, "Not a temperature characteristic");
+        *status_code = HAP_STATUS_RES_ABSENT;
+    }
+    return HAP_FAIL;
+}
 
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
+static int humidity_sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv) {
+    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY)) {
+        if (environmental_data->humidity.data_available) {
+            hap_val_t new_val;
+            new_val.f = *environmental_data->humidity.value;
+            hap_char_update_val(hc, &new_val);
+            *status_code = HAP_STATUS_SUCCESS;
+            return HAP_SUCCESS;
+        } else {
+            ESP_LOGW(TAG, "No humidity data available");
+            *status_code = HAP_STATUS_RES_ABSENT;
+        }
+    } else {
+        ESP_LOGW(TAG, "Not a relative humidity characteristic");
+        *status_code = HAP_STATUS_RES_ABSENT;
+    }
+    return HAP_FAIL;
+}
 
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
+static int air_quality_sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv) {
+    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_AIR_QUALITY)) {
+        if (environmental_data->static_iaq.data_available) {
+            hap_val_t new_val;
+            if (*environmental_data->static_iaq.accuracy == 0) {
+                new_val.u = 0;
+            } else {
+                new_val.u = round(0.5 + *environmental_data->static_iaq.value / 100.f);
+            }
+            hap_char_update_val(hc, &new_val);
+            *status_code = HAP_STATUS_SUCCESS;
+            return HAP_SUCCESS;
+        } else {
+            ESP_LOGW(TAG, "No air quality data available");
+            *status_code = HAP_STATUS_RES_ABSENT;
+        }
+    } else if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_VOC_DENSITY)) {
+        if (environmental_data->breath_voc_equivalent.data_available) {
+            hap_val_t new_val;
+            new_val.f = *environmental_data->breath_voc_equivalent.value;
+            hap_char_update_val(hc, &new_val);
+            *status_code = HAP_STATUS_SUCCESS;
+            return HAP_SUCCESS;
+        } else {
+            ESP_LOGW(TAG, "No voc data available");
+            *status_code = HAP_STATUS_RES_ABSENT;
+        }
+    } else {
+            ESP_LOGW(TAG, "Not a air quality / voc characteristic");
+            *status_code = HAP_STATUS_RES_ABSENT;
+        }
+    return HAP_FAIL;
+}
 
-    wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT() ESP_ERROR_CHECK(esp_wifi_init(&wifi_init_config));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+static int carbon_dioxide_sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv) {
+    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CARBON_DIOXIDE_DETECTED)) {
+        if (environmental_data->co2_equivalent.data_available) {
+            hap_val_t new_val;
+            new_val.u = *environmental_data->co2_equivalent.value > 1600;
+            hap_char_update_val(hc, &new_val);
+            *status_code = HAP_STATUS_SUCCESS;
+            return HAP_SUCCESS;
+        } else {
+            ESP_LOGW(TAG, "No carbon detection data available");
+            *status_code = HAP_STATUS_RES_ABSENT;
+        }
+    } else if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CARBON_DIOXIDE_LEVEL)) {
+        if (environmental_data->co2_equivalent.data_available) {
+            hap_val_t new_val;
+            new_val.f = *environmental_data->co2_equivalent.value;
+            hap_char_update_val(hc, &new_val);
+            *status_code = HAP_STATUS_SUCCESS;
+            return HAP_SUCCESS;
+        } else {
+            ESP_LOGW(TAG, "No carbon dioxide level data available");
+            *status_code = HAP_STATUS_RES_ABSENT;
+        }
+    } else if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CARBON_DIOXIDE_PEAK_LEVEL)) {
+        if (environmental_data->co2_equivalent.data_available) {
+            const hap_val_t *cur_val = hap_char_get_val(hc);
+            hap_val_t new_val;
+            new_val.f = cur_val->f > *environmental_data->co2_equivalent.value ? cur_val->f : *environmental_data->co2_equivalent.value;
+            hap_char_update_val(hc, &new_val);
+            *status_code = HAP_STATUS_SUCCESS;
+            return HAP_SUCCESS;
+        } else {
+            ESP_LOGW(TAG, "No carbon dioxide peak level data available");
+            *status_code = HAP_STATUS_RES_ABSENT;
+        }
+    } else {
+        ESP_LOGW(TAG, "Not a carbon dioxide related characteristic");
+        *status_code = HAP_STATUS_RES_ABSENT;
+    }
+    return HAP_FAIL;
+}
 
-    wifi_config_t wifi_config = {
-        .sta =
-            {
-                .ssid = WIFI_SSID,
-                .password = WIFI_PASSWORD,
-            },
+static int nixie_identify(hap_acc_t* ha) {
+    ESP_LOGI(TAG, "Accessory identified");
+    return HAP_SUCCESS;
+}
+
+/*The main thread for handling the Accessory */
+static void homekit_init(void *arg) {
+    hap_acc_t* accessory;
+    hap_serv_t* leds_service;
+    hap_serv_t* temperature_service;
+    hap_serv_t* humidity_service;
+    hap_serv_t* air_quality_service;
+    hap_serv_t* carbon_dioxide_detection_service;
+
+    /* Initialize the HAP core */
+    hap_init(HAP_TRANSPORT_WIFI);
+
+    /* Initialise the mandatory parameters for Accessory which will be added as
+     * the mandatory services internally */
+    hap_acc_cfg_t cfg = {
+        .name = "Nixie Clock",
+        .manufacturer = "Arlaz",
+        .model = "Cool Clock",
+        .serial_num = "423971",
+        .fw_rev = "0.9.0",
+        .hw_rev = "1.0",
+        .pv = "1.1.0",
+        .identify_routine = nixie_identify,
+        .cid = HAP_CID_OTHER,
     };
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-}
-
-static bool s_led_on = false;
-
-void led_write(bool on) {
-    gpio_set_level(GPIO_LED, on ? 1 : 0);
-}
-
-void led_init(void) {
-    PIN_FUNC_SELECT(GPIO_PIN_REG_13, PIN_FUNC_GPIO);
-    gpio_set_direction(GPIO_LED, GPIO_MODE_OUTPUT);
-    led_write(s_led_on);
-}
-
-void led_identify_task(void* _args) {
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 2; j++) {
-            led_write(true);
-            vTaskDelay(100 / portTICK_PERIOD_MS);
-            led_write(false);
-            vTaskDelay(100 / portTICK_PERIOD_MS);
-        }
-
-        vTaskDelay(250 / portTICK_PERIOD_MS);
+    /* Create accessory object */
+    accessory = hap_acc_create(&cfg);
+    if (!accessory) {
+        ESP_LOGE(TAG, "Failed to create accessory");
+        goto err;
     }
 
-    led_write(s_led_on);
+    /* Add a dummy Product Data */
+    uint8_t product_data[] = {'E','S','P','3','2','H','A','P'};
+    hap_acc_add_product_data(accessory, product_data, sizeof(product_data));
 
+    /* Create the Leds Service. Include the "name" since this is a user visible service  */
+    leds_service = hap_serv_lightbulb_create(true);
+    if (!leds_service) {
+        ESP_LOGE(TAG, "Failed to create leds service");
+        goto err;
+    }
+
+    /* Get environmental data */
+    environmental_data = get_virtual_sensor_data();
+
+    /* Create the Temperature Sensor Service. Include the "name" since this is a user visible service  */
+    temperature_service = hap_serv_temperature_sensor_create(10);
+    if (!temperature_service) {
+        ESP_LOGE(TAG, "Failed to create temperature sensor service");
+        goto err;
+    }
+
+    /* Create the Humidity Sensor Service. Include the "name" since this is a user visible service  */
+    humidity_service = hap_serv_humidity_sensor_create(50);
+    if (!humidity_service) {
+        ESP_LOGE(TAG, "Failed to create humidity sensor service");
+        goto err;
+    }
+
+    /* Create the Air Quality Sensor Service. Include the "name" since this is a user visible service  */
+    air_quality_service = hap_serv_air_quality_sensor_create(3);
+    if (!air_quality_service) {
+        ESP_LOGE(TAG, "Failed to create air quality sensor service");
+        goto err;
+    }
+
+    /* Create the Carbon Dioxide Sensor Service. Include the "name" since this is a user visible service  */
+    carbon_dioxide_detection_service = hap_serv_carbon_dioxide_sensor_create(0);
+    if (!carbon_dioxide_detection_service) {
+        ESP_LOGE(TAG, "Failed to create carbon dioxide sensor service");
+        goto err;
+    }
+
+    /* Add the optional characteristics to the Leds Service */
+    int ret = hap_serv_add_char(leds_service, hap_char_name_create("Leds"));
+    ret |= hap_serv_add_char(leds_service, hap_char_brightness_create(50));
+    ret |= hap_serv_add_char(leds_service, hap_char_hue_create(180));
+    ret |= hap_serv_add_char(leds_service, hap_char_saturation_create(100));
+    if (ret != HAP_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to add optional characteristics to leds service");
+        goto err;
+    }
+
+    /* Add the name characteristic to the Temperature Sensor Service */
+    ret = hap_serv_add_char(temperature_service, hap_char_name_create("Temperature Sensor"));
+    if (ret != HAP_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to add name characteristic to temperature sensor service");
+        goto err;
+    }
+
+    /* Add the name optional characteristic to the Humidity Sensor Service */
+    ret = hap_serv_add_char(humidity_service, hap_char_name_create("Humidity Sensor"));
+    if (ret != HAP_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to add name characteristic to humidity sensor service");
+        goto err;
+    }
+
+    /* Add the optional characteristics to the Air Quality Sensor Service */
+    ret = hap_serv_add_char(air_quality_service, hap_char_name_create("Air Quality Sensor"));
+    ret |= hap_serv_add_char(air_quality_service, hap_char_voc_density_create(500));
+    if (ret != HAP_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to add optional characteristics to air quality sensor service");
+        goto err;
+    }
+
+    /* Add the optional characteristics to the Carbon Dioxide Sensor Service */
+    ret = hap_serv_add_char(carbon_dioxide_detection_service, hap_char_name_create("My Carbon Dioxide Sensor"));
+    ret |= hap_serv_add_char(carbon_dioxide_detection_service, hap_char_carbon_dioxide_level_create(0));
+    ret |= hap_serv_add_char(carbon_dioxide_detection_service, hap_char_carbon_dioxide_peak_level_create(0));
+    if (ret != HAP_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to add optional characteristics to carbon dioxide sensor service");
+        goto err;
+    }
+
+    /* Set the write callback for the leds service */
+    hap_serv_set_write_cb(leds_service, leds_write);
+    /* Set the read callback for the Temperature Sensor Service */
+    hap_serv_set_read_cb(temperature_service, temperature_sensor_read);
+    /* Set the read callback for the Humidity Sensor Service */
+    hap_serv_set_read_cb(humidity_service, humidity_sensor_read);
+    /* Set the read callback for the Air Quality Sensor Service */
+    hap_serv_set_read_cb(air_quality_service, air_quality_sensor_read);
+    /* Set the read callback for the Carbon Dioxide Sensor Service */
+    hap_serv_set_read_cb(carbon_dioxide_detection_service, carbon_dioxide_sensor_read);
+
+    /* Add the Leds Service to the Accessory Object */
+    hap_acc_add_serv(accessory, leds_service);
+    /* Add the Temperature Sensor Service to the Accessory Object */
+    hap_acc_add_serv(accessory, temperature_service);
+    /* Add the Humidity Sensor Service to the Accessory Object */
+    hap_acc_add_serv(accessory, humidity_service);
+    /* Add the Air Quality Sensor Service to the Accessory Object */
+    hap_acc_add_serv(accessory, air_quality_service);
+    /* Add the Carbon Dioxide Sensor Service to the Accessory Object */
+    hap_acc_add_serv(accessory, carbon_dioxide_detection_service);
+
+
+    /* Add the Accessory to the HomeKit Database */
+    hap_add_accessory(accessory);
+#ifdef CONFIG_EXAMPLE_USE_HARDCODED_SETUP_CODE
+    /* Unique Setup code of the format xxx-xx-xxx. Default: 111-22-333 */
+    hap_set_setup_code(CONFIG_EXAMPLE_SETUP_CODE);
+    /* Unique four character Setup Id. Default: ES32 */
+    hap_set_setup_id(CONFIG_EXAMPLE_SETUP_ID);
+#ifdef CONFIG_APP_WIFI_USE_WAC_PROVISIONING
+    app_hap_setup_payload(CONFIG_EXAMPLE_SETUP_CODE, CONFIG_EXAMPLE_SETUP_ID, true, cfg.cid);
+#else
+    app_hap_setup_payload(CONFIG_EXAMPLE_SETUP_CODE, CONFIG_EXAMPLE_SETUP_ID, false, cfg.cid);
+#endif
+#endif
+
+    /* Enable Hardware MFi authentication (applicable only for MFi variant of SDK) */
+    hap_enable_mfi_auth(HAP_MFI_AUTH_HW);
+
+    /* After all the initializations are done, start the HAP core */
+    hap_start();
+
+    /* The task ends here. The read/write callbacks will be invoked by the HAP Framework */
+    vTaskDelete(NULL);
+
+err:
+    hap_acc_delete(accessory);
     vTaskDelete(NULL);
 }
 
-void clock_identify(homekit_value_t _value) {
-    ESP_LOGI(TAG,"Clock identify");
-    xTaskCreate(led_identify_task, "LED identify", 512, NULL, 2, NULL);
-}
-
-homekit_value_t led_on_get(void) {
-    return HOMEKIT_BOOL(s_led_on);
-}
-
-void led_on_set(homekit_value_t value) {
-    if (value.format != homekit_format_bool) {
-        ESP_LOGI(TAG,"Invalid value format: %d", value.format);
-        return;
-    }
-
-    s_led_on = value.bool_value;
-    led_write(s_led_on);
-}
-
-_Noreturn void sensor_task(VirtualSensorData* sensor_data) {
-    while (1) {
-
-        temperature.value.float_value = *sensor_data->temperature;
-        relative_humidity.value.float_value = *sensor_data->humidity;
-
-        uint8_t iaq = roundf((*sensor_data->static_iaq)/100);
-
-        air_quality.value.uint8_value = iaq;
-        carbon_dioxide_equivalent.value.float_value = *sensor_data->co2_equivalent;
-        voc_equivalent.value.float_value = *sensor_data->breath_voc_equivalent;
-
-        homekit_characteristic_notify(&temperature, HOMEKIT_FLOAT(*sensor_data->temperature));
-        homekit_characteristic_notify(&relative_humidity, HOMEKIT_FLOAT(*sensor_data->humidity));
-        homekit_characteristic_notify(&air_quality, HOMEKIT_UINT8(iaq));
-        homekit_characteristic_notify(&carbon_dioxide_equivalent, HOMEKIT_FLOAT(*sensor_data->co2_equivalent));
-        homekit_characteristic_notify(&voc_equivalent, HOMEKIT_FLOAT(*sensor_data->breath_voc_equivalent));
-
-        vTaskDelay(3000 / portTICK_PERIOD_MS);
-    }
-}
-
-void sensor_init(void) {
-    VirtualSensorData* sensor_data = get_v_sensor();
-    xTaskCreate((TaskFunction_t)sensor_task, "HomeKit Sensor Task", 256, &sensor_data, 2, NULL);
-}
-
-homekit_accessory_t* accessories[] = {
-    HOMEKIT_ACCESSORY(.id=1, .category=homekit_accessory_category_thermostat, .services=(homekit_service_t*[]) {
-        HOMEKIT_SERVICE(ACCESSORY_INFORMATION, .characteristics=(homekit_characteristic_t*[]) {
-            HOMEKIT_CHARACTERISTIC(NAME, "LED and TEMP Sensor"),
-            HOMEKIT_CHARACTERISTIC(MANUFACTURER, "Arlaz"),
-            HOMEKIT_CHARACTERISTIC(SERIAL_NUMBER, "037A2BA5BF19D"),
-            HOMEKIT_CHARACTERISTIC(MODEL, "MyTemperatureSensor"),
-            HOMEKIT_CHARACTERISTIC(FIRMWARE_REVISION, "0.2"),
-            HOMEKIT_CHARACTERISTIC(IDENTIFY, clock_identify),
-            NULL}),
-                      HOMEKIT_SERVICE(TEMPERATURE_SENSOR, .characteristics=(homekit_characteristic_t*[]) {
-                          HOMEKIT_CHARACTERISTIC(NAME, "Temperature Sensor"), &temperature,
-                          NULL}),
-                      HOMEKIT_SERVICE(HUMIDITY_SENSOR, .characteristics=(homekit_characteristic_t*[]) {
-                          HOMEKIT_CHARACTERISTIC(NAME, "Humidity Sensor"), &relative_humidity,
-                          NULL}),
-                      HOMEKIT_SERVICE(AIR_QUALITY_SENSOR, .characteristics=(homekit_characteristic_t*[]) {
-                          HOMEKIT_CHARACTERISTIC(NAME, "Air Quality Sensor"), &air_quality, &carbon_dioxide_equivalent, &voc_equivalent,
-                          NULL}),
-                      NULL}),
-    NULL
-};
-
-homekit_server_config_t config = {
-    .accessories = accessories,
-    .password = "121-14-181",
-};
-
-void on_wifi_ready(void) {
-    homekit_server_init(&config);
-}
-
 void homekit_server_start(void) {
-    wifi_init();
-    led_init();
+    xTaskCreatePinnedToCore(homekit_init, "HomeKit task", configMINIMAL_STACK_SIZE*8, NULL, 3, NULL, PRO_CPU_NUM);
 }

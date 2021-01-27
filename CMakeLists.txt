@@ -4,6 +4,7 @@ set(EXTRA_COMPONENT_DIRS
         lib/
         lib/sensors
         lib/drivers/components
+        lib/homekit/components/homekit
 )
 
 add_compile_options(-fdiagnostics-color=always)

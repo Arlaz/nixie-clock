@@ -4,8 +4,11 @@ idf_component_register(
         INCLUDE_DIRS
             .
         PRIV_REQUIRES
-            wiring
+            esp_hap_core
+            esp_hap_apple_profiles
+            esp_hap_extras
+            app_hap_setup_payload
             nvs_flash
-            homekit
             virtual_sensor
+            leds_light
 )
