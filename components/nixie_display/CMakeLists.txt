@@ -1,0 +1,9 @@
+idf_component_register(
+        SRCS
+            "nixie_display.c"
+        INCLUDE_DIRS
+            .
+        PRIV_REQUIRES
+            wiring
+            shift_registers_driver
+)
