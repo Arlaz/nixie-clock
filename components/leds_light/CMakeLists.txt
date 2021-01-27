@@ -1,0 +1,9 @@
+idf_component_register(
+        SRCS
+            "leds_light.c"
+        INCLUDE_DIRS
+            .
+        PRIV_REQUIRES
+            wiring
+            led_strip
+)
