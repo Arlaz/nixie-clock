@@ -1,0 +1,8 @@
+idf_component_register(
+        SRCS
+            "virtual_sensor.c"
+        INCLUDE_DIRS
+            .
+        REQUIRES
+            interface_ds18b20
+)

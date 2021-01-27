@@ -7,4 +7,5 @@ idf_component_register(
             wiring
             nvs_flash
             homekit
+            virtual_sensor
 )
