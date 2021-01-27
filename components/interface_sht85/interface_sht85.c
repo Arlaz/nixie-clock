@@ -1,51 +1,41 @@
+#include <math.h>
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
-#include "esp_log.h"
 
-#include <iot_i2c_bus.h>
-#include "sht3x.h"
+#include <esp_log.h>
+#include <sht3x.h>
 
-#define CONFIG_I2C_MASTER_SCL 19
-#define CONFIG_I2C_MASTER_SDA 18
+#include "interface_sht85.h"
 
-#define CONFIG_I2C_MASTER_FREQUENCY 100000
+static const char* TAG = "sht85_sensor";
 
-static i2c_bus_handle_t i2c_bus = NULL;
-static sht3x_handle_t sht3x_sens = NULL;
+static sht85characteristics sht85_current_data;
 
-/**
- * @brief i2c master initialization
- */
-void i2c_bus_init() {
-	i2c_config_t conf;
-	conf.mode = I2C_MODE_MASTER;
-	conf.sda_io_num = CONFIG_I2C_MASTER_SDA;
-	conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-	conf.scl_io_num = CONFIG_I2C_MASTER_SCL;
-	conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-	conf.master.clk_speed = CONFIG_I2C_MASTER_FREQUENCY;
-	i2c_bus = iot_i2c_bus_create(I2C_NUM_1, &conf);
+sht85characteristics* get_sht85_data(void) {
+    return &sht85_current_data;
 }
 
-void sht85_loop(void) {
-
-	i2c_bus_init();
-	sht3x_sens = iot_sht3x_create(i2c_bus, 0x44);
-	int32_t temperature, humidity;
-	while (1)
-	{
-		int8_t ret = sht3x_measure_blocking_read(sht3x_sens, &temperature, &humidity);
+_Noreturn void sht85_loop(void) {
+    int32_t temperature, humidity;
+	while (1) {
+		int8_t ret = sht3x_measure_blocking_read(&temperature, &humidity);
 		if (ret == STATUS_OK) {
-			printf("measured temperature: %0.2f degreeCelsius, "
-				   "measured humidity: %0.2f percentRH\n",
-				   temperature / 1000.0f,
-				   humidity / 1000.0f);
-		}
+            sht85_current_data.temperature = temperature / 1000.0f;
+            sht85_current_data.humidity = humidity / 1000.0f;
+			ESP_LOGI(TAG, "measured temperature: %0.2f degree Celsius", sht85_current_data.temperature);
+		    ESP_LOGI(TAG, "measured humidity: %0.2f %% RH", sht85_current_data.humidity);
+        }
 		else {
-			printf("error reading measurement\n");
+			ESP_LOGE(TAG, "Error reading measurement, code : %d", ret);
 		}
 		vTaskDelay(1000 / portTICK_RATE_MS);
 	}
+}
+
+esp_err_t initialize_sht85_sensor(void) {
+    sensirion_i2c_init();
+    xTaskCreatePinnedToCore((TaskFunction_t)sht85_loop, "SHT85 loop", 1024, NULL, 3, NULL, 0);
+    return ESP_OK;
 }
