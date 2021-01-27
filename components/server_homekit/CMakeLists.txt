@@ -1,0 +1,10 @@
+idf_component_register(
+        SRCS
+            "server_homekit.c"
+        INCLUDE_DIRS
+            .
+        PRIV_REQUIRES
+            wiring
+            nvs_flash
+            homekit
+)
