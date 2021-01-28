@@ -7,4 +7,7 @@ idf_component_register(
             interface_ds18b20
             interface_bme680
             interface_sht85
+        PRIV_REQUIRES
+            i2cdev
+            wiring
 )

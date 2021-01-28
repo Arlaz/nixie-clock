@@ -2,10 +2,11 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#include "wiring.h"
-#include "ds18b20.h"
-#include "owb.h"
-#include "owb_rmt.h"
+#include <ds18b20.h>
+#include <owb.h>
+#include <owb_rmt.h>
+
+#include "interface_ds18b20.h"
 
 #define DS18B20_RESOLUTION (DS18B20_RESOLUTION_12_BIT)
 #define SAMPLE_PERIOD (3000)  // milliseconds
@@ -39,7 +40,7 @@ float* get_ds18b20_temp(void) {
     return &ds18b20_current_temperature;
 }
 
-esp_err_t initialize_ds18b20_sensor(void) {
+esp_err_t initialize_ds18b20_sensor(gpio_num_t gpio) {
     // Override global log level by uncommenting following line
     // esp_log_level_set("*", ESP_LOG_INFO);
 
@@ -51,7 +52,7 @@ esp_err_t initialize_ds18b20_sensor(void) {
     vTaskDelay(2000 / portTICK_PERIOD_MS);
 
     // Create a 1-Wire bus, using the RMT timeslot driver
-    owb = owb_rmt_initialize(&rmt_driver_info, GPIO_DS18B20, RMT_CHANNEL_1, RMT_CHANNEL_0);
+    owb = owb_rmt_initialize(&rmt_driver_info, gpio, RMT_CHANNEL_1, RMT_CHANNEL_0);
     owb_use_crc(owb, true);  // enable CRC check for ROM code
 
     // Find all connected devices

@@ -4,8 +4,7 @@ idf_component_register(
         INCLUDE_DIRS
             .
         PRIV_REQUIRES
-            nvs_flash
-            wiring
-        REQUIRES
             bme680_bsec
+            i2cdev
+            nvs_flash
 )

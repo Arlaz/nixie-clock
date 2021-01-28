@@ -5,17 +5,27 @@
 #include <nvs.h>
 #include <driver/i2c.h>
 
-#include "wiring.h"
+#include <i2cdev.h>
+
+#include <bsec_integration.h>
+#include <bsec_serialized_configurations_iaq.h>
+
 #include "interface_bme680.h"
 
-#define I2C_MASTER_TX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
-#define I2C_FREQUENCY   100000
-#define ACTIVE_I2C      I2C_NUM_1
 #define STATE_SAVING_SAMPLES_INTERVAL 10000
 
 static const char* TAG = "bme680_sensor";
-static const char* sensor_binary = "sensor_blob";
+static const char* sensor_binary = "bme680_sensor_blob";
+
+typedef struct PARAMETERS_FOR_THE_BME680_TASK {
+    sleep_fct sleep_function;
+    get_timestamp_us_fct get_timestamp_us_function;
+    output_ready_fct output_ready_function;
+    state_save_fct state_save_function;
+    uint32_t save_intvl;
+} ParametersForBME680;
+
+static i2c_dev_t i2c_bme680;
 
 static bme680characteristics bme680_current_data =
     {-273.0f, 0.0f, 0.0f,
@@ -35,10 +45,15 @@ static bme680characteristics bme680_current_data =
  *
  * @return          result of the bus communication function
  */
-int8_t bus_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data_ptr, uint16_t data_len) {
+int8_t bus_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t* reg_data_ptr, uint16_t data_len) {
     // ...
     // Please insert system specific function to write to the bus where BME680 is connected
     // ...
+    assert(dev_addr == i2c_bme680.addr);
+    return i2c_dev_write_reg(&i2c_bme680, reg_addr, reg_data_ptr, (size_t)data_len);
+
+    /** Following is an implementation without i2c_dev
+
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     assert(data_len > 0 && reg_data_ptr != NULL); // Safeguarding the assumptions
     i2c_master_start(cmd);
@@ -50,6 +65,7 @@ int8_t bus_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data_ptr, uint
     i2c_cmd_link_delete(cmd);
     // ESP_OK matches with the function success code (0)
     return (int8_t)err_write;
+     **/
 }
 
 /*!
@@ -62,10 +78,15 @@ int8_t bus_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data_ptr, uint
  *
  * @return          result of the bus communication function
  */
-int8_t bus_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data_ptr, uint16_t data_len) {
+int8_t bus_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t* reg_data_ptr, uint16_t data_len) {
     // ...
     // Please insert system specific function to read from bus where BME680 is connected
     // ...
+    assert(dev_addr == i2c_bme680.addr);
+    return i2c_dev_read_reg(&i2c_bme680, reg_addr, reg_data_ptr, (size_t)data_len);
+
+    /** Following is an implementation without i2c_dev
+
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
 
     assert(data_len > 0 && reg_data_ptr != NULL); // Safeguarding the assumptions
@@ -87,6 +108,7 @@ int8_t bus_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data_ptr, uint1
     i2c_cmd_link_delete(cmd);
     // ESP_OK matches with the function success code (0)
     return (int8_t)ret;
+     **/
 }
 
 /*!
@@ -222,6 +244,9 @@ uint32_t config_load(uint8_t *config_buffer, uint32_t n_buffer) {
     return sizeof(bsec_config_iaq);
 }
 
+/**
+ * Have to be used if i2c bus is used without i2cdev
+ *
 static esp_err_t i2c_master_init(void) {
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
@@ -231,12 +256,12 @@ static esp_err_t i2c_master_init(void) {
         .scl_pullup_en = GPIO_PULLUP_DISABLE,
         .master.clk_speed = I2C_FREQUENCY,
     };
-    esp_err_t err_i2c = i2c_param_config(ACTIVE_I2C, &conf);
-    ESP_ERROR_CHECK(err_i2c);
+    i2c_param_config(ACTIVE_I2C, &conf);
     return i2c_driver_install(ACTIVE_I2C, conf.mode,
                               I2C_MASTER_RX_BUF_DISABLE,
-                              I2C_MASTER_TX_BUF_DISABLE, 0);
+                              I2C_MASTER_TX_BUF_DISABLE, 0)
 }
+*/
 
 /*!
  * @brief           Pass the struct of the loop in arguments
@@ -256,11 +281,16 @@ void bme680_loop(ParametersForBME680* parameters) {
  *
  * @return          result of the processing
  */
-esp_err_t initialize_bme680_sensor(void)  {
+esp_err_t initialize_bme680_sensor(i2c_port_t port, i2c_config_t* cfg)  {
+    ESP_LOGI(TAG, "Initialization started");
     return_values_init ret;
-    ESP_ERROR_CHECK(i2c_master_init());
 
-    ESP_LOGI(TAG, "I2C initialized");
+    i2c_bme680.port = port;
+    // addr have to match the address defined in bsec_iot_init func
+    // redefinition is required for i2cdev component
+    i2c_bme680.addr = BME680_I2C_ADDR_PRIMARY;
+    i2c_bme680.cfg = *cfg;
+
     /* Call to the function which initializes the BSEC library
      * Switch on low-power mode and provide no temperature offset */
     ret = bsec_iot_init(BSEC_SAMPLE_RATE_CONTINUOUS, 0.0f, bus_write, bus_read, bme680_sleep, state_load, config_load);

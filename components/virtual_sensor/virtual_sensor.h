@@ -1,17 +1,12 @@
 #pragma once
 
-#define BME680_RW 4 //RW for "relative weight"
-#define DS18B20_RW 3
-#define SHT85_RW 4
-#define TEMP_TOTAL_WEIGHT (BME680_RW+DS18B20_RW)
-#define HUM_TOTAL_WEIGHT (BME680_RW)
-
 #include <esp_err.h>
+
 #include <interface_bme680.h>
 #include <interface_ds18b20.h>
 #include <interface_sht85.h>
-#include <stdbool.h>
-#include <string.h>
+
+#define NO_DATA_AVAILABLE -256
 
 typedef struct SENSORS_DATA {
     float* ds18b20_temp;
@@ -20,14 +15,35 @@ typedef struct SENSORS_DATA {
 } SensorsData;
 
 typedef struct VIRTUAL_SENSOR_DATA {
-    float* temperature;
-    float* humidity;
-    float* pressure;
-    float* static_iaq;
-    float* co2_equivalent;
-    float* breath_voc_equivalent;
+    struct TEMPERATURE {
+        bool data_available;
+        float* value;
+    } temperature;
+    struct HUMIDITY {
+        bool data_available;
+        float* value;
+    } humidity;
+    struct PRESSURE {
+        bool data_available;
+        float* value;
+    } pressure;
+    struct STATIC_IAQ {
+        bool data_available;
+        float* value;
+        uint8_t* accuracy;
+    } static_iaq;
+    struct CO2_EQUIVALENT {
+        bool data_available;
+        float* value;
+    } co2_equivalent;
+    struct BREATH_VOC_EQUIVALENT {
+        bool data_available;
+        float* value;
+    } breath_voc_equivalent;
 } VirtualSensorData;
 
 esp_err_t initialize_virtual_sensor(void);
-SensorsData* get_sensors(void);
-VirtualSensorData* get_v_sensor(void);
+
+SensorsData* get_sensors_data(void);
+
+VirtualSensorData* get_virtual_sensor_data(void);
