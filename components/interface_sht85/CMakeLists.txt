@@ -1,0 +1,13 @@
+idf_component_register(
+        SRCS
+            "interface_sht85.c"
+            "Sensirion/sensirion_common.c"
+            "Sensirion/sht3x.c"
+            "i2c_bus/i2c_bus.c"
+        INCLUDE_DIRS
+            .
+            Sensirion/include
+            i2c_bus
+        PRIV_INCLUDE_DIRS
+            Sensirion/priv_include
+)
