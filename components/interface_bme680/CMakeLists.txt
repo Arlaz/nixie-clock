@@ -1,0 +1,11 @@
+idf_component_register(
+        SRCS
+            "interface_bme680.c"
+        INCLUDE_DIRS
+            .
+        PRIV_REQUIRES
+            nvs_flash
+            wiring
+        REQUIRES
+            bme680_bsec
+)

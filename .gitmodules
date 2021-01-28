@@ -13,3 +13,6 @@
 [submodule "lib/sensors/ds18b20"]
 	path = lib/sensors/ds18b20
 	url = git@github.com:Arlaz/esp32-ds18b20.git
+[submodule "lib/sensors/bme680_bsec"]
+	path = lib/sensors/bme680_bsec
+	url = git@github.com:Arlaz/esp-bme680-bsec.git
