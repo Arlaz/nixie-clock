@@ -77,7 +77,7 @@ esp_err_t initialize_ds18b20_sensor(gpio_num_t gpio) {
     ds18b20_use_crc(ds18b20_info, true);  // enable CRC check on all reads
     ds18b20_set_resolution(ds18b20_info, DS18B20_RESOLUTION);
 
-    xTaskCreatePinnedToCore(ds18b20_update_temperature_task, "Update ds18b20 temperature", 4096, NULL, 2, NULL, 0);
+    xTaskCreatePinnedToCore(ds18b20_update_temperature_task, "Update ds18b20 temperature", 4096, NULL, 2, NULL, PRO_CPU_NUM);
 
     return ESP_OK;
 }
