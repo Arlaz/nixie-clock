@@ -5,7 +5,7 @@ idf_component_register(
             .
         REQUIRES
             interface_ds18b20
-            interface_bme680
+            interface_bme68x
             interface_sht85
         PRIV_REQUIRES
             i2cdev

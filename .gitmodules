@@ -4,12 +4,12 @@
 [submodule "lib/sensors/ds18b20"]
 	path = lib/sensors/ds18b20
 	url = git@github.com:Arlaz/esp32-ds18b20.git
-[submodule "lib/sensors/bme680_bsec"]
-	path = lib/sensors/bme680_bsec
-	url = git@github.com:Arlaz/esp-bme680-bsec.git
 [submodule "lib/drivers"]
 	path = lib/drivers
 	url = git@github.com:Arlaz/esp-idf-lib.git
 [submodule "lib/homekit"]
 	path = lib/homekit
 	url = git@github.com:Arlaz/esp-homekit-sdk.git
+[submodule "lib/sensors/bme68x_bsec"]
+	path = lib/sensors/bme68x_bsec
+	url = git@github.com:Arlaz/esp-bme68x-bsec.git
