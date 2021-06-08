@@ -20,8 +20,8 @@ static DS18B20_Info* ds18b20_info;
 static float ds18b20_current_temperature = -273.0f;
 
 _Noreturn static void ds18b20_update_temperature_task(void* args) {
+    TickType_t last_wake_time_ds18b20 = xTaskGetTickCount();
     while (1) {
-        TickType_t last_wake_time_ds18b20 = xTaskGetTickCount();
         ESP_LOGI(TAG, "Reading DS18B20 temperature");
 
         if (!device_is_present || owb == NULL) {
