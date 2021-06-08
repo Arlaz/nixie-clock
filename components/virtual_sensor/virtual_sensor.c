@@ -9,7 +9,7 @@
 #define ACTIVE_I2C      I2C_NUM_1
 #define I2C_FREQUENCY   500000
 
-#define BME680_RW 4 //RW for "relative weight"
+#define BME68X_RW 4 //RW for "relative weight"
 #define DS18B20_RW 3
 #define SHT85_RW 4
 
@@ -51,8 +51,8 @@ void update_virtual_sensor_data(void) {
         }
 
         if (sensors_data.bme680_data) {
-            vs_temperature += sensors_data.bme680_data->temperature*BME680_RW;
-            vs_humidity += sensors_data.bme680_data->humidity*BME680_RW;
+            vs_temperature += sensors_data.bme680_data->temperature*BME68X_RW;
+            vs_humidity += sensors_data.bme680_data->humidity*BME68X_RW;
         }
 
         if (sensors_data.sht85_data) {
@@ -93,14 +93,14 @@ esp_err_t initialize_virtual_sensor(void) {
         .master.clk_speed = I2C_FREQUENCY,
     };
 
-    ret = initialize_bme680_sensor(ACTIVE_I2C, &conf);
+    ret = initialize_bme68x_sensor(ACTIVE_I2C, &conf);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "BME680 sensor initialization error : %s", esp_err_to_name(ret));
     } else {
         ESP_LOGI(TAG, "BME680 sensor initialized");
-        sensors_data.bme680_data = get_bme680_data();
-        vs_temp_w += BME680_RW;
-        vs_hum_w += BME680_RW;
+        sensors_data.bme680_data = get_bme68x_data();
+        vs_temp_w += BME68X_RW;
+        vs_hum_w += BME68X_RW;
 
         vs_data.pressure.value = &(sensors_data.bme680_data->pressure);
         vs_data.static_iaq.value = &(sensors_data.bme680_data->static_iaq);

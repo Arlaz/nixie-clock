@@ -8,27 +8,27 @@
 #include <i2cdev.h>
 
 #include <bsec_integration.h>
-#include <bsec_serialized_configurations_iaq.h>
+#include <bsec_serialized_configurations_selectivity.h>
 #include <nvs_flash.h>
 
-#include "interface_bme680.h"
+#include "interface_bme68x.h"
 
 #define STATE_SAVING_SAMPLES_INTERVAL 10000
 
-static const char* TAG = "bme680_sensor";
-static const char* sensor_binary = "bme680_sensor_blob";
+static const char* TAG = "bme68x_sensor";
+static const char* sensor_binary = "bme68x_sensor_blob";
 
-typedef struct PARAMETERS_FOR_THE_BME680_TASK {
-    sleep_fct sleep_function;
+typedef struct PARAMETERS_FOR_THE_BME68X_TASK {
+    bme68x_delay_us_fptr_t sleep_function;
     get_timestamp_us_fct get_timestamp_us_function;
     output_ready_fct output_ready_function;
     state_save_fct state_save_function;
     uint32_t save_intvl;
-} ParametersForBME680;
+} ParametersForBME68x;
 
-static i2c_dev_t i2c_bme680;
+static i2c_dev_t i2c_bme68x;
 
-static bme680characteristics bme680_current_data =
+static bme68xcharacteristics bme68x_current_data =
     {-273.0f, 0.0f, 0.0f,
      0.0f, 0, 0.0f, 0.0f};
 
@@ -46,12 +46,11 @@ static bme680characteristics bme680_current_data =
  *
  * @return          result of the bus communication function
  */
-int8_t bus_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t* reg_data_ptr, uint16_t data_len) {
+int8_t bus_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t length, void *intf_ptr) {
     // ...
-    // Please insert system specific function to write to the bus where BME680 is connected
+    // Please insert system specific function to write to the bus where BME68x is connected
     // ...
-    assert(dev_addr == i2c_bme680.addr);
-    return i2c_dev_write_reg(&i2c_bme680, reg_addr, reg_data_ptr, (size_t)data_len);
+    return i2c_dev_write_reg(&i2c_bme68x, reg_addr, reg_data, (size_t)length);
 
     /** Following is an implementation without i2c_dev
 
@@ -79,51 +78,25 @@ int8_t bus_write(uint8_t dev_addr, uint8_t reg_addr, uint8_t* reg_data_ptr, uint
  *
  * @return          result of the bus communication function
  */
-int8_t bus_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t* reg_data_ptr, uint16_t data_len) {
+int8_t bus_read(uint8_t reg_addr, uint8_t* reg_data, uint32_t length, void* intf_ptr) {
     // ...
-    // Please insert system specific function to read from bus where BME680 is connected
+    // Please insert system specific function to read from bus where BME68X is connected
     // ...
-    assert(dev_addr == i2c_bme680.addr);
-    return i2c_dev_read_reg(&i2c_bme680, reg_addr, reg_data_ptr, (size_t)data_len);
-
-    /** Following is an implementation without i2c_dev
-
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-
-    assert(data_len > 0 && reg_data_ptr != NULL); // Safeguarding the assumptions
-    // Feeding the command in
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg_addr, true);
-
-    //bme680_sleep(150);
-    // Reading data back
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_READ, true);
-    if (data_len > 1) {
-        i2c_master_read(cmd, reg_data_ptr, data_len - 1, I2C_MASTER_ACK);
-    }
-    i2c_master_read_byte(cmd, reg_data_ptr + data_len - 1, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(ACTIVE_I2C, cmd, pdMS_TO_TICKS(1000));
-    i2c_cmd_link_delete(cmd);
-    // ESP_OK matches with the function success code (0)
-    return (int8_t)ret;
-     **/
+    return i2c_dev_read_reg(&i2c_bme68x, reg_addr, reg_data, (size_t)length);
 }
 
 /*!
  * @brief           System specific implementation of sleep function
  *
- * @param[in]       t_ms    time in milliseconds
+ * @param[in]       period_us    time in microseconds
  *
  * @return          none
  */
-static void bme680_sleep(uint32_t t_ms) {
+static void bme68x_sleep(uint32_t period_us, void* intf_ptr) {
     // ...
-    // Please insert system specific function sleep or delay for t_ms milliseconds
+    // Please insert system specific function sleep or delay for t_us microseconds
     // ...
-    vTaskDelay(pdMS_TO_TICKS(t_ms));
+    vTaskDelay(pdMS_TO_TICKS((uint32_t) period_us / 1000.0f));
 }
 
 /*!
@@ -142,37 +115,67 @@ static void bme680_sleep(uint32_t t_ms) {
  *
  * @return          none
  */
-void output_ready(int64_t timestamp, float iaq, uint8_t iaq_accuracy, float temperature, float humidity,
-                  float pressure, float raw_temperature, float raw_humidity, float gas, bsec_library_return_t bsec_status,
-                  float static_iaq, float co2_equivalent, float breath_voc_equivalent)
+void output_ready(int64_t timestamp,
+                  float iaq,
+                  uint8_t iaq_accuracy,
+                  float temp,
+                  float raw_temp,
+                  float raw_pressure,
+                  float humidity,
+                  float raw_humidity,
+                  float raw_gas,
+                  float static_iaq,
+                  uint8_t static_iaq_accuracy,
+                  float co2_equivalent,
+                  uint8_t co2_accuracy,
+                  float breath_voc_equivalent,
+                  uint8_t breath_voc_accuracy,
+                  float comp_gas_value,
+                  uint8_t comp_gas_accuracy,
+                  float gas_percentage,
+                  uint8_t gas_percentage_acccuracy,
+                  bsec_library_return_t bsec_status)
 {
     // ...
     // Please insert system specific code to further process or display the BSEC outputs
     // ...
-    bme680_current_data.temperature = temperature;
-    bme680_current_data.humidity = humidity;
-    bme680_current_data.pressure = pressure;
-    bme680_current_data.static_iaq = static_iaq;
-    bme680_current_data.iaq_accuracy = iaq_accuracy;
-    bme680_current_data.co2_equivalent = co2_equivalent;
-    bme680_current_data.breath_voc_equivalent = breath_voc_equivalent;
+    bme68x_current_data.temperature = temp;
+    bme68x_current_data.humidity = humidity;
+    bme68x_current_data.pressure = raw_pressure;
+    bme68x_current_data.static_iaq = static_iaq;
+    bme68x_current_data.static_iaq_accuracy = iaq_accuracy;
+    bme68x_current_data.co2_equivalent = co2_equivalent;
+    bme68x_current_data.breath_voc_equivalent = breath_voc_equivalent;
 
+    ESP_LOGI(TAG, "timestamp : %lld", timestamp);
     ESP_LOGI(TAG, "iaq : %f", iaq);
-    ESP_LOGI(TAG, "static iaq : %f", static_iaq);
     ESP_LOGI(TAG, "iaq accuracy : %hhu", iaq_accuracy);
-    ESP_LOGI(TAG, "temperature : %f", temperature);
+    ESP_LOGI(TAG, "temperature : %f", temp);
+    ESP_LOGI(TAG, "raw temperature : %f", raw_temp);
+    ESP_LOGI(TAG, "pressure %f", raw_pressure);
     ESP_LOGI(TAG, "humidity : %f", humidity);
-    ESP_LOGI(TAG, "pressure %f", pressure);
-    ESP_LOGI(TAG, "co2_equivalent %f", co2_equivalent);
-    ESP_LOGI(TAG, "breath voc %f", breath_voc_equivalent);
+    ESP_LOGI(TAG, "raw humidity : %f", raw_humidity);
+    ESP_LOGI(TAG, "raw gas : %f", raw_gas);
+    ESP_LOGI(TAG, "static iaq : %f", static_iaq);
+    ESP_LOGI(TAG, "static iaq accuracy : %hhu", static_iaq_accuracy);
+    ESP_LOGI(TAG, "co2_equivalent : %f", co2_equivalent);
+    ESP_LOGI(TAG, "co2_equivalent accuracy : %hhu", co2_accuracy);
+    ESP_LOGI(TAG, "breath voc equivalent : %f", breath_voc_equivalent);
+    ESP_LOGI(TAG, "breath voc equivalent accuracy : %hhu", breath_voc_accuracy);
+    ESP_LOGI(TAG, "compensated gas value : %f", comp_gas_value);
+    ESP_LOGI(TAG, "compensated gas accuracy : %hhu", comp_gas_accuracy);
+    ESP_LOGI(TAG, "gas percentage : %f", gas_percentage);
+    ESP_LOGI(TAG, "gas percentage accuracy %hhu", gas_percentage_acccuracy);
+    ESP_LOGI(TAG, "status %d", bsec_status);
+
 }
 
 /*!
  *
- * @return          pointer to the struct holding current bme680 sensor data
+ * @return          pointer to the struct holding current bme68x sensor data
  */
-bme680characteristics* get_bme680_data(void) {
-    return &bme680_current_data;
+bme68xcharacteristics* get_bme68x_data(void) {
+    return &bme68x_current_data;
 }
 
 /*!
@@ -248,11 +251,11 @@ uint32_t config_load(uint8_t *config_buffer, uint32_t n_buffer) {
     // Return zero if loading was unsuccessful or no config was available,
     // otherwise return length of loaded config string.
     // ...
-    ESP_LOGI(TAG, "Loading configuration: buffer-size %d config size %zu", n_buffer, sizeof(bsec_config_iaq));
-    assert(n_buffer >= sizeof(bsec_config_iaq));
-    memcpy(config_buffer, bsec_config_iaq, sizeof(bsec_config_iaq));
+    ESP_LOGI(TAG, "Loading configuration: buffer-size %d config size %zu", n_buffer, sizeof(bsec_config_selectivity));
+    assert(n_buffer >= sizeof(bsec_config_selectivity));
+    memcpy(config_buffer, bsec_config_selectivity, sizeof(bsec_config_selectivity));
 
-    return sizeof(bsec_config_iaq);
+    return sizeof(bsec_config_selectivity);
 }
 
 /**
@@ -281,7 +284,7 @@ static esp_err_t i2c_master_init(void) {
  *
  * @return          none
  */
-void bme680_loop(ParametersForBME680* parameters) {
+void bme68x_loop(ParametersForBME68x* parameters) {
     bsec_iot_loop(parameters->sleep_function, parameters->get_timestamp_us_function,
                   parameters->output_ready_function, parameters->state_save_function, parameters->save_intvl);
 }
@@ -292,15 +295,15 @@ void bme680_loop(ParametersForBME680* parameters) {
  *
  * @return          result of the processing
  */
-esp_err_t initialize_bme680_sensor(i2c_port_t port, i2c_config_t* cfg)  {
+esp_err_t initialize_bme68x_sensor(i2c_port_t port, i2c_config_t* cfg)  {
     ESP_LOGI(TAG, "Initialization started");
 
-    i2c_bme680.port = port;
+    i2c_bme68x.port = port;
     // addr have to match the address defined in bsec_iot_init func
     // redefinition is required for i2cdev component
-    i2c_bme680.addr = BME680_I2C_ADDR_PRIMARY;
-    i2c_bme680.cfg = *cfg;
-    ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_dev_create_mutex(&i2c_bme680));
+    i2c_bme68x.addr = BME68X_I2C_ADDR_LOW;
+    i2c_bme68x.cfg = *cfg;
+    ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_dev_create_mutex(&i2c_bme68x));
 
     // Init BSEC partition
     esp_err_t err;
@@ -313,12 +316,12 @@ esp_err_t initialize_bme680_sensor(i2c_port_t port, i2c_config_t* cfg)  {
 
     /* Call to the function which initializes the BSEC library
      * Switch on low-power mode and provide no temperature offset */
-    return_values_init init_result = bsec_iot_init(BSEC_SAMPLE_RATE_CONTINUOUS, 0.0f, bus_write, bus_read, bme680_sleep, state_load, config_load);
+    return_values_init init_result = bsec_iot_init(BSEC_SAMPLE_RATE_LP, 0.0f, bus_write, bus_read, bme68x_sleep, state_load, config_load);
 
-    if (init_result.bme680_status != BME680_OK) {
-        /* Could not initialize BME680 */
-        ESP_LOGE(TAG, "initializing BME680 failed %d", init_result.bme680_status);
-        ESP_ERROR_CHECK(i2c_dev_delete_mutex(&i2c_bme680));
+    if (init_result.bme68x_status != BME68X_OK) {
+        /* Could not initialize BME68X */
+        ESP_LOGE(TAG, "initializing BME68X failed %d", init_result.bme68x_status);
+        ESP_ERROR_CHECK(i2c_dev_delete_mutex(&i2c_bme68x));
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -330,12 +333,12 @@ esp_err_t initialize_bme680_sensor(i2c_port_t port, i2c_config_t* cfg)  {
 
     ESP_LOGI(TAG, "Entering into the loop");
 
-    // Structure to initialize BME680 task because xTaskCreate can only pass one argument to the task function
-    ParametersForBME680 arguments = {bme680_sleep, esp_timer_get_time, output_ready, state_save, STATE_SAVING_SAMPLES_INTERVAL};
+    // Structure to initialize BME68x task because xTaskCreate can only pass one argument to the task function
+    ParametersForBME68x arguments = {bme68x_sleep, esp_timer_get_time, output_ready, state_save, STATE_SAVING_SAMPLES_INTERVAL};
 
     /* Call to endless loop function which reads and processes data based on sensor settings */
     /* State is saved every STATE_SAVING_SAMPLES_INTERVAL samples, by default every 10.000 * 3 secs = 500 minutes  */
-    xTaskCreatePinnedToCore((TaskFunction_t)bme680_loop, "Update BME680 characteristics", configMINIMAL_STACK_SIZE * 8, &arguments, 2, NULL, PRO_CPU_NUM);
+    xTaskCreatePinnedToCore((TaskFunction_t)bme68x_loop, "Update BME68X", configMINIMAL_STACK_SIZE * 10, &arguments, 2, NULL, PRO_CPU_NUM);
 
     return ESP_OK;
 }

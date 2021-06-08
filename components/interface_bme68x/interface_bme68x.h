@@ -2,7 +2,7 @@
 
 #include <driver/i2c.h>
 
-typedef struct BME680_CHARACTERISTICS {
+typedef struct BME68X_CHARACTERISTICS {
     float temperature;
     float humidity;
     float pressure;
@@ -10,8 +10,8 @@ typedef struct BME680_CHARACTERISTICS {
     uint8_t static_iaq_accuracy;
     float co2_equivalent;
     float breath_voc_equivalent;
-} bme680characteristics;
+} bme68xcharacteristics;
 
-esp_err_t initialize_bme680_sensor(i2c_port_t port, i2c_config_t* cfg);
+esp_err_t initialize_bme68x_sensor(i2c_port_t port, i2c_config_t* cfg);
 
-bme680characteristics* get_bme680_data(void);
+bme68xcharacteristics* get_bme68x_data(void);

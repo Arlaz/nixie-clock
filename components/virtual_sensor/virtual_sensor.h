@@ -2,7 +2,7 @@
 
 #include <esp_err.h>
 
-#include <interface_bme680.h>
+#include <interface_bme68x.h>
 #include <interface_ds18b20.h>
 #include <interface_sht85.h>
 
@@ -10,7 +10,7 @@
 
 typedef struct SENSORS_DATA {
     float* ds18b20_temp;
-    bme680characteristics* bme680_data;
+    bme68xcharacteristics* bme680_data;
     sht85characteristics* sht85_data;
 } SensorsData;
 

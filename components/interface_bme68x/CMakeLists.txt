@@ -1,10 +1,10 @@
 idf_component_register(
         SRCS
-            "interface_bme680.c"
+            "interface_bme68x.c"
         INCLUDE_DIRS
             .
         PRIV_REQUIRES
-            bme680_bsec
+            bme68x_bsec
             i2cdev
             nvs_flash
 )
