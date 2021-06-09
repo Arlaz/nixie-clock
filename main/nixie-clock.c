@@ -39,4 +39,5 @@ void app_main(void) {
     ESP_LOGI(TAG, "Wifi started");
 
     homekit_server_start();
+    ESP_LOGI(TAG, "stack remaining free in main %d", uxTaskGetStackHighWaterMark(NULL));
 }
