@@ -33,6 +33,7 @@ _Noreturn static void ds18b20_update_temperature_task(void* args) {
         }
 
         vTaskDelayUntil(&last_wake_time_ds18b20, SAMPLE_PERIOD / portTICK_PERIOD_MS);
+        ESP_LOGI(TAG, "stack remaining free %d", uxTaskGetStackHighWaterMark(NULL));
     }
 }
 
